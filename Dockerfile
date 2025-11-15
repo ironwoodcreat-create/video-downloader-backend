@@ -1,14 +1,16 @@
 # Use Node.js 18 base image
 FROM node:18
 
-# Install Python and pip (required for yt-dlp)
+# Install Python3-full and pipx (required for yt-dlp)
+# python3-full includes all Python packages needed
 RUN apt-get update && \
-    apt-get install -y python3 python3-pip && \
+    apt-get install -y python3-full python3-pip python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp globally
-RUN pip3 install --upgrade pip && \
-    pip3 install yt-dlp
+# Install yt-dlp using pipx (recommended for system-wide tools)
+# If pipx not available, use pip with --break-system-packages flag
+RUN python3 -m pip install --upgrade pip --break-system-packages && \
+    python3 -m pip install yt-dlp --break-system-packages
 
 # Verify yt-dlp installation
 RUN yt-dlp --version
