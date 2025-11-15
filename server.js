@@ -1,8 +1,11 @@
 const express = require('express');
 const cors = require('cors');
-const { YTDlpWrap } = require('yt-dlp-wrap');
+const { spawn, exec } = require('child_process');
+const { promisify } = require('util');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+const execPromise = promisify(exec);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,16 +24,55 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// yt-dlp path
+// yt-dlp path (Railway will install it via nixpacks or we'll use system yt-dlp)
 const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    ytdlp: ytdlpPath
+// Helper function to run yt-dlp command
+function runYtDlp(args) {
+  return new Promise((resolve, reject) => {
+    const process = spawn(ytdlpPath, args);
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    process.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    process.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(stderr || `Process exited with code ${code}`));
+      }
+    });
+
+    process.on('error', (error) => {
+      reject(error);
+    });
   });
+}
+
+// Health check
+app.get('/api/health', async (req, res) => {
+  try {
+    // Check if yt-dlp is available
+    await execPromise(`${ytdlpPath} --version`);
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      ytdlp: ytdlpPath
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      message: 'yt-dlp not found. Please install yt-dlp on the server.',
+      error: error.message
+    });
+  }
 });
 
 // Get video info
@@ -49,9 +91,14 @@ app.post('/api/video/info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
-    const ytDlpWrap = new YTDlpWrap(ytdlpPath);
+    const result = await runYtDlp([
+      '--dump-json',
+      '--no-warnings',
+      '--no-playlist',
+      url
+    ]);
     
-    const videoInfo = await ytDlpWrap.getVideoInfo(url);
+    const videoInfo = JSON.parse(result);
     
     res.json({
       success: true,
@@ -75,8 +122,6 @@ app.post('/api/video/download', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const ytDlpWrap = new YTDlpWrap(ytdlpPath);
-    
     // Build format string
     let formatSelector = format || 'best';
     if (quality && !format) {
@@ -86,22 +131,25 @@ app.post('/api/video/download', async (req, res) => {
     }
     
     // Download options
-    const options = [
+    const args = [
       '--format', formatSelector,
       '--no-playlist',
       '--no-warnings',
       '--no-part',
       '--buffer-size', '128K',
       '--concurrent-fragments', '8',
+      '-o', '-', // Output to stdout
     ];
     
     // Time range for clips
     if (startTime || endTime) {
       const start = startTime || '00:00:00';
       const end = endTime || '';
-      options.push('--download-sections', `*${start}-${end}`);
-      options.push('--force-keyframes-at-cuts');
+      args.push('--download-sections', `*${start}-${end}`);
+      args.push('--force-keyframes-at-cuts');
     }
+    
+    args.push(url);
     
     // Set headers for streaming
     res.setHeader('Content-Type', 'video/mp4');
@@ -109,16 +157,31 @@ app.post('/api/video/download', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     
     // Stream download
-    const stream = ytDlpWrap.execStream([url, ...options]);
+    const ytdlpProcess = spawn(ytdlpPath, args);
     
-    stream.on('error', (error) => {
-      console.error('Stream error:', error);
+    ytdlpProcess.stdout.pipe(res);
+    
+    ytdlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+    
+    ytdlpProcess.on('error', (error) => {
+      console.error('Process error:', error);
       if (!res.headersSent) {
         res.status(500).json({ error: 'Download failed', message: error.message });
       }
     });
     
-    stream.pipe(res);
+    ytdlpProcess.on('close', (code) => {
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).json({ error: 'Download failed', message: `Process exited with code ${code}` });
+      }
+    });
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      ytdlpProcess.kill();
+    });
     
   } catch (error) {
     console.error('Download error:', error);
@@ -140,9 +203,7 @@ app.post('/api/video/formats', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const ytDlpWrap = new YTDlpWrap(ytdlpPath);
-    
-    const formats = await ytDlpWrap.execPromise([
+    const result = await runYtDlp([
       url,
       '--list-formats',
       '--no-warnings'
@@ -150,7 +211,7 @@ app.post('/api/video/formats', async (req, res) => {
     
     res.json({
       success: true,
-      data: formats
+      data: result
     });
   } catch (error) {
     console.error('Error getting formats:', error);
@@ -165,4 +226,3 @@ app.listen(PORT, () => {
   console.log(`🚀 Video Downloader API running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
 });
-
