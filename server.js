@@ -114,6 +114,100 @@ app.post('/api/video/info', async (req, res) => {
 });
 
 // Download video (streaming)
+// Support both GET (for browser native download) and POST (for compatibility)
+app.get('/api/video/download', async (req, res) => {
+  try {
+    const url = req.query.url;
+    const format = req.query.format;
+    const quality = req.query.quality;
+    const startTime = req.query.startTime;
+    const endTime = req.query.endTime;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+    
+    // Validate URL
+    try {
+      new URL(url);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+
+    // Build format string
+    let formatSelector = format || 'best';
+    if (quality && !format) {
+      // Convert quality to format (e.g., "1080p" -> "bestvideo[height<=1080]+bestaudio/best")
+      const height = quality.replace('p', '');
+      formatSelector = `bestvideo[height<=${height}]+bestaudio/best`;
+    }
+    
+    // Download options
+    const args = [
+      '--format', formatSelector,
+      '--no-playlist',
+      '--no-warnings',
+      '--no-part',
+      '--buffer-size', '128K',
+      '--concurrent-fragments', '8',
+      '-o', '-', // Output to stdout
+    ];
+    
+    // Time range for clips
+    if (startTime || endTime) {
+      const start = startTime || '00:00:00';
+      const end = endTime || '';
+      args.push('--download-sections', `*${start}-${end}`);
+      args.push('--force-keyframes-at-cuts');
+    }
+    
+    args.push(url);
+    
+    // Set headers for streaming
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', 'attachment');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Accept-Ranges', 'bytes'); // Support range requests
+    
+    // Stream download
+    const ytdlpProcess = spawn(ytdlpPath, args);
+    
+    ytdlpProcess.stdout.pipe(res);
+    
+    ytdlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+    
+    ytdlpProcess.on('error', (error) => {
+      console.error('Process error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Download failed', message: error.message });
+      }
+    });
+    
+    ytdlpProcess.on('close', (code) => {
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).json({ error: 'Download failed', message: `Process exited with code ${code}` });
+      }
+    });
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      ytdlpProcess.kill();
+    });
+    
+  } catch (error) {
+    console.error('Download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Download failed',
+        message: error.message 
+      });
+    }
+  }
+});
+
+// POST endpoint for compatibility (same functionality)
 app.post('/api/video/download', async (req, res) => {
   try {
     const { url, format, quality, startTime, endTime } = req.body;
