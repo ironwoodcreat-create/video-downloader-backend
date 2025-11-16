@@ -319,6 +319,16 @@ app.post('/api/video/formats', async (req, res) => {
 
 // Download preview video at 360p for clip selection
 // Support both GET (for direct streaming) and POST (for compatibility)
+
+// Handle OPTIONS request for CORS preflight
+app.options('/api/video/preview', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  res.sendStatus(204);
+});
+
 app.get('/api/video/preview', async (req, res) => {
   try {
     const url = req.query.url;
@@ -335,8 +345,14 @@ app.get('/api/video/preview', async (req, res) => {
     }
 
     // Download at 360p for preview (smaller file size, faster)
+    // CRITICAL FIX: Use 'best' format to ensure audio+video together (not separate streams)
+    // Previous format 'bestvideo+bestaudio' could fail to merge if ffmpeg unavailable
+    // New format prioritizes single stream with audio, falls back to merged streams
+    // Format priority: 1) best[height<=360] (single stream), 2) bestvideo+bestaudio[ext=m4a] (merged with AAC), 3) fallback
     const args = [
-      '--format', 'bestvideo[height<=360]+bestaudio/best[height<=360]',
+      '--format', 'best[height<=360]/bestvideo[height<=360]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]',
+      '--merge-output-format', 'mp4', // Ensure MP4 output with audio
+      '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 128k', // Ensure AAC audio codec for browser compatibility
       '--no-playlist',
       '--no-warnings',
       '--no-part',
@@ -347,6 +363,11 @@ app.get('/api/video/preview', async (req, res) => {
     ];
     
     // Set headers for streaming
+    // CRITICAL: CORS headers must be set BEFORE streaming starts
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
@@ -400,8 +421,14 @@ app.post('/api/video/preview', async (req, res) => {
     }
 
     // Download at 360p for preview (smaller file size, faster)
+    // CRITICAL FIX: Use 'best' format to ensure audio+video together (not separate streams)
+    // Previous format 'bestvideo+bestaudio' could fail to merge if ffmpeg unavailable
+    // New format prioritizes single stream with audio, falls back to merged streams
+    // Format priority: 1) best[height<=360] (single stream), 2) bestvideo+bestaudio[ext=m4a] (merged with AAC), 3) fallback
     const args = [
-      '--format', 'bestvideo[height<=360]+bestaudio/best[height<=360]',
+      '--format', 'best[height<=360]/bestvideo[height<=360]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]',
+      '--merge-output-format', 'mp4', // Ensure MP4 output with audio
+      '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 128k', // Ensure AAC audio codec for browser compatibility
       '--no-playlist',
       '--no-warnings',
       '--no-part',
@@ -412,6 +439,11 @@ app.post('/api/video/preview', async (req, res) => {
     ];
     
     // Set headers for streaming
+    // CRITICAL: CORS headers must be set BEFORE streaming starts
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
