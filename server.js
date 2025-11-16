@@ -222,6 +222,70 @@ app.post('/api/video/formats', async (req, res) => {
   }
 });
 
+// Download preview video at 360p for clip selection
+app.post('/api/video/preview', async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    // Download at 360p for preview (smaller file size, faster)
+    const args = [
+      '--format', 'bestvideo[height<=360]+bestaudio/best[height<=360]',
+      '--no-playlist',
+      '--no-warnings',
+      '--no-part',
+      '--buffer-size', '64K',
+      '--concurrent-fragments', '4',
+      '-o', '-', // Output to stdout
+      url
+    ];
+    
+    // Set headers for streaming
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    
+    // Stream download
+    const ytdlpProcess = spawn(ytdlpPath, args);
+    
+    ytdlpProcess.stdout.pipe(res);
+    
+    ytdlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+    
+    ytdlpProcess.on('error', (error) => {
+      console.error('Process error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Preview download failed', message: error.message });
+      }
+    });
+    
+    ytdlpProcess.on('close', (code) => {
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).json({ error: 'Preview download failed', message: `Process exited with code ${code}` });
+      }
+    });
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      ytdlpProcess.kill();
+    });
+    
+  } catch (error) {
+    console.error('Preview download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Preview download failed',
+        message: error.message 
+      });
+    }
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Video Downloader API running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
