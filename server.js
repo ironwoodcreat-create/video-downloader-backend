@@ -164,8 +164,9 @@ app.get('/api/video/download', async (req, res) => {
     args.push(url);
     
     // Set headers for streaming
+    const filename = req.query.filename || 'video.mp4';
     res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', 'attachment');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Accept-Ranges', 'bytes'); // Support range requests
     
