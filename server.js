@@ -795,6 +795,8 @@ app.post('/api/video/preview', async (req, res) => {
       '--format', 'best[height<=360]/bestvideo[height<=360]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]',
       '--merge-output-format', 'mp4', // Ensure MP4 output with audio
       '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 128k', // Ensure AAC audio codec for browser compatibility
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      '--extractor-args', 'youtube:player_client=android',
       '--no-playlist',
       '--no-warnings',
       '--no-part',
