@@ -391,41 +391,46 @@ app.get('/api/video/download', async (req, res) => {
       return; // Exit early for clip selection
     }
     
-    // For full video, set headers immediately and use direct streaming
-    // Set headers for streaming (respect allowed origins)
-    // CRITICAL: CORS headers must be set BEFORE streaming starts
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const reqOrigin = req.headers.origin;
-    const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
-    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
-    res.setHeader('Content-Type', 'video/mp4');
-    // CRITICAL: Use attachment with proper filename encoding for browser download
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.setHeader('Cache-Control', 'no-cache');
-    // Note: Range requests require special handling; not advertising partial support
-    
-    // Stream download with proper error handling and logging
+    // For full video, delay headers until yt-dlp starts successfully
+    // This prevents 500 errors if yt-dlp fails immediately
     console.log(`Starting download: ${filename}, URL: ${url}`);
     
-    // For full video, use direct streaming (existing code)
+    // Spawn yt-dlp process first
     const ytdlpProcess = spawn(ytdlpPath, args);
+    
+    let hasStartedStreaming = false;
+    let firstChunkReceived = false;
     
     let bytesStreamed = 0;
     let hasError = false;
     
     // Track bytes streamed for debugging
     ytdlpProcess.stdout.on('data', (chunk) => {
+      // Set headers on first chunk (yt-dlp is working)
+      if (!hasStartedStreaming && !res.headersSent) {
+        const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+        const reqOrigin = req.headers.origin;
+        const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+        res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+        res.setHeader('Cache-Control', 'no-cache');
+        hasStartedStreaming = true;
+        firstChunkReceived = true;
+        console.log('Headers sent, streaming started');
+      }
+      
       bytesStreamed += chunk.length;
       if (bytesStreamed % (10 * 1024 * 1024) === 0) { // Log every 10MB
         console.log(`Download progress: ${(bytesStreamed / (1024 * 1024)).toFixed(2)} MB streamed`);
       }
     });
     
-    // Pipe stdout to response
+    // Pipe stdout to response (will start after first chunk if headers not sent)
     ytdlpProcess.stdout.pipe(res);
     
     ytdlpProcess.stderr.on('data', (data) => {
@@ -435,6 +440,11 @@ app.get('/api/video/download', async (req, res) => {
       if (errorMsg.includes('ERROR') || errorMsg.includes('ERROR:')) {
         hasError = true;
         if (!res.headersSent) {
+          // Set CORS headers before sending error
+          const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+          const reqOrigin = req.headers.origin;
+          const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+          res.setHeader('Access-Control-Allow-Origin', allowOrigin);
           res.status(500).json({ error: 'Download failed', message: errorMsg });
         } else {
           // Headers already sent, can't send error - log it
