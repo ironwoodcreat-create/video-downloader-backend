@@ -184,32 +184,83 @@ app.get('/api/video/download', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     // Note: Range requests require special handling; not advertising partial support
     
-    // Stream download
+    // Stream download with proper error handling and logging
+    console.log(`Starting download: ${filename}, URL: ${url}`);
     const ytdlpProcess = spawn(ytdlpPath, args);
     
+    let bytesStreamed = 0;
+    let hasError = false;
+    
+    // Track bytes streamed for debugging
+    ytdlpProcess.stdout.on('data', (chunk) => {
+      bytesStreamed += chunk.length;
+      if (bytesStreamed % (10 * 1024 * 1024) === 0) { // Log every 10MB
+        console.log(`Download progress: ${(bytesStreamed / (1024 * 1024)).toFixed(2)} MB streamed`);
+      }
+    });
+    
+    // Pipe stdout to response
     ytdlpProcess.stdout.pipe(res);
     
     ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
+      const errorMsg = data.toString();
+      console.error('yt-dlp stderr:', errorMsg);
+      // Check for critical errors
+      if (errorMsg.includes('ERROR') || errorMsg.includes('ERROR:')) {
+        hasError = true;
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Download failed', message: errorMsg });
+        } else {
+          // Headers already sent, can't send error - log it
+          console.error('Critical error after headers sent:', errorMsg);
+        }
+      }
     });
     
     ytdlpProcess.on('error', (error) => {
-      console.error('Process error:', error);
+      console.error('Process spawn error:', error);
+      hasError = true;
       if (!res.headersSent) {
         res.status(500).json({ error: 'Download failed', message: error.message });
       }
     });
     
     ytdlpProcess.on('close', (code) => {
-      if (code !== 0 && !res.headersSent) {
-        res.status(500).json({ error: 'Download failed', message: `Process exited with code ${code}` });
+      console.log(`yt-dlp process closed with code ${code}, bytes streamed: ${bytesStreamed}`);
+      if (code !== 0) {
+        hasError = true;
+        if (!res.headersSent) {
+          res.status(500).json({ 
+            error: 'Download failed', 
+            message: `Process exited with code ${code}. Bytes streamed: ${bytesStreamed}` 
+          });
+        } else if (bytesStreamed === 0) {
+          // Headers sent but no data - this is the 0 bytes issue
+          console.error('CRITICAL: Headers sent but 0 bytes streamed! Process exit code:', code);
+        }
+      } else if (bytesStreamed === 0) {
+        console.error('WARNING: Process exited successfully but 0 bytes streamed!');
+      } else {
+        console.log(`Download completed successfully: ${(bytesStreamed / (1024 * 1024)).toFixed(2)} MB`);
       }
     });
     
     // Handle client disconnect
     req.on('close', () => {
+      console.log('Client disconnected, killing yt-dlp process');
       ytdlpProcess.kill();
     });
+    
+    // Timeout protection (30 minutes max)
+    setTimeout(() => {
+      if (!ytdlpProcess.killed) {
+        console.error('Download timeout after 30 minutes');
+        ytdlpProcess.kill();
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Download timeout' });
+        }
+      }
+    }, 30 * 60 * 1000);
     
   } catch (error) {
     console.error('Download error:', error);
