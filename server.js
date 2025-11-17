@@ -64,11 +64,23 @@ function runYtDlp(args) {
 app.get('/api/health', async (req, res) => {
   try {
     // Check if yt-dlp is available
-    await execPromise(`${ytdlpPath} --version`);
+    const ytdlpVersion = await execPromise(`${ytdlpPath} --version`);
+    // Check if ffmpeg is available (required for clip selection)
+    let ffmpegVersion = null;
+    try {
+      const ffmpegOutput = await execPromise('ffmpeg -version');
+      ffmpegVersion = ffmpegOutput.stdout.split('\n')[0] || 'installed';
+    } catch (ffmpegError) {
+      // ffmpeg not found
+    }
+    
     res.json({ 
       status: 'ok', 
       timestamp: new Date().toISOString(),
-      ytdlp: ytdlpPath
+      ytdlp: ytdlpPath,
+      ytdlpVersion: ytdlpVersion.stdout.trim(),
+      ffmpeg: ffmpegVersion ? 'installed' : 'NOT INSTALLED',
+      ffmpegVersion: ffmpegVersion
     });
   } catch (error) {
     res.status(500).json({ 
