@@ -345,7 +345,7 @@ app.get('/api/video/download', async (req, res) => {
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
         res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
         res.setHeader('Content-Type', 'video/mp4');
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
         res.setHeader('Content-Length', stats.size);
         res.setHeader('Cache-Control', 'no-cache');
         
@@ -403,7 +403,8 @@ app.get('/api/video/download', async (req, res) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
     res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    // CRITICAL: Use attachment with proper filename encoding for browser download
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.setHeader('Cache-Control', 'no-cache');
     // Note: Range requests require special handling; not advertising partial support
     
