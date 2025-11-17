@@ -186,32 +186,15 @@ app.get('/api/video/download', async (req, res) => {
     
     args.push(url);
     
-    // Set headers for streaming (respect allowed origins)
-    // CRITICAL: CORS headers must be set BEFORE streaming starts
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const reqOrigin = req.headers.origin;
-    const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
-    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
-    
     const filename = req.query.filename || 'video.mp4';
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Cache-Control', 'no-cache');
-    // Note: Range requests require special handling; not advertising partial support
-    
-    // Stream download with proper error handling and logging
-    console.log(`Starting download: ${filename}, URL: ${url}`);
-    if (startTime || endTime) {
-      console.log(`Clip selection mode: Using temp file ${tempFilePath}`);
-      console.log(`Full yt-dlp command: ${ytdlpPath} ${args.join(' ')}`);
-    }
     
     // For clip selection, download to temp file first, then stream
+    // IMPORTANT: Don't set response headers until file is ready to avoid browser timeout
     if (useTempFile) {
+      console.log(`Starting clip download: ${filename}, URL: ${url}`);
+      console.log(`Clip selection mode: Using temp file ${tempFilePath}`);
+      console.log(`Full yt-dlp command: ${ytdlpPath} ${args.join(' ')}`);
+      
       const ytdlpProcess = spawn(ytdlpPath, args);
       
       let stderrOutput = '';
@@ -225,6 +208,11 @@ app.get('/api/video/download', async (req, res) => {
       ytdlpProcess.on('error', (error) => {
         console.error('Process spawn error:', error);
         if (!res.headersSent) {
+          // Set CORS headers before sending error
+          const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+          const reqOrigin = req.headers.origin;
+          const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+          res.setHeader('Access-Control-Allow-Origin', allowOrigin);
           res.status(500).json({ error: 'Download failed', message: error.message });
         }
         // Clean up temp file
@@ -238,6 +226,11 @@ app.get('/api/video/download', async (req, res) => {
         
         if (code !== 0) {
           if (!res.headersSent) {
+            // Set CORS headers before sending error
+            const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+            const reqOrigin = req.headers.origin;
+            const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+            res.setHeader('Access-Control-Allow-Origin', allowOrigin);
             res.status(500).json({ 
               error: 'Download failed', 
               message: `Process exited with code ${code}. ${stderrOutput.substring(0, 200)}` 
@@ -253,6 +246,10 @@ app.get('/api/video/download', async (req, res) => {
         // Check if temp file exists and has content
         if (!tempFilePath || !fs.existsSync(tempFilePath)) {
           if (!res.headersSent) {
+            const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+            const reqOrigin = req.headers.origin;
+            const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+            res.setHeader('Access-Control-Allow-Origin', allowOrigin);
             res.status(500).json({ error: 'Download failed', message: 'Clip file not created' });
           }
           return;
@@ -261,6 +258,10 @@ app.get('/api/video/download', async (req, res) => {
         const stats = fs.statSync(tempFilePath);
         if (stats.size === 0) {
           if (!res.headersSent) {
+            const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+            const reqOrigin = req.headers.origin;
+            const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+            res.setHeader('Access-Control-Allow-Origin', allowOrigin);
             res.status(500).json({ error: 'Download failed', message: 'Clip file is empty' });
           }
           fs.unlinkSync(tempFilePath);
@@ -268,6 +269,21 @@ app.get('/api/video/download', async (req, res) => {
         }
         
         console.log(`Clip downloaded successfully: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`);
+        
+        // NOW set headers - file is ready to stream
+        // CRITICAL: Set headers only when file is ready to avoid browser timeout
+        const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+        const reqOrigin = req.headers.origin;
+        const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+        res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        res.setHeader('Content-Length', stats.size);
+        res.setHeader('Cache-Control', 'no-cache');
         
         // Stream the temp file
         try {
@@ -284,9 +300,6 @@ app.get('/api/video/download', async (req, res) => {
           
           fileStream.on('error', (error) => {
             console.error('File stream error:', error);
-            if (!res.headersSent) {
-              res.status(500).json({ error: 'Stream failed', message: error.message });
-            }
             // Clean up temp file
             if (tempFilePath && fs.existsSync(tempFilePath)) {
               fs.unlinkSync(tempFilePath);
@@ -294,9 +307,6 @@ app.get('/api/video/download', async (req, res) => {
           });
         } catch (error) {
           console.error('Error streaming clip file:', error);
-          if (!res.headersSent) {
-            res.status(500).json({ error: 'Stream failed', message: error.message });
-          }
           // Clean up temp file
           if (tempFilePath && fs.existsSync(tempFilePath)) {
             fs.unlinkSync(tempFilePath);
@@ -316,6 +326,25 @@ app.get('/api/video/download', async (req, res) => {
       
       return; // Exit early for clip selection
     }
+    
+    // For full video, set headers immediately and use direct streaming
+    // Set headers for streaming (respect allowed origins)
+    // CRITICAL: CORS headers must be set BEFORE streaming starts
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const reqOrigin = req.headers.origin;
+    const allowOrigin = allowedOrigins.length ? (allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]) : '*';
+    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition');
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('Cache-Control', 'no-cache');
+    // Note: Range requests require special handling; not advertising partial support
+    
+    // Stream download with proper error handling and logging
+    console.log(`Starting download: ${filename}, URL: ${url}`);
     
     // For full video, use direct streaming (existing code)
     const ytdlpProcess = spawn(ytdlpPath, args);
