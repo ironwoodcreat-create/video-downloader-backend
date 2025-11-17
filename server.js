@@ -147,7 +147,7 @@ app.get('/api/video/download', async (req, res) => {
     }
     
     // Download options
-    const args = [
+    let args = [
       '--format', formatSelector,
       '--no-playlist',
       '--no-warnings',
@@ -158,12 +158,28 @@ app.get('/api/video/download', async (req, res) => {
     ];
     
     // Time range for clips
-    if (startTime || endTime) {
+    // IMPORTANT: --download-sections with -o - (stdout) may not work reliably
+    // For clip selection, we'll use a temp file approach for better reliability
+    const useTempFile = startTime || endTime;
+    let tempFilePath = null;
+    
+    if (useTempFile) {
       const start = startTime ? startTime : '00:00:00';
       const end = endTime ? endTime : '';
       // yt-dlp format: *HH:MM:SS-HH:MM:SS or *HH:MM:SS- (for end of video)
       const section = end ? `*${start}-${end}` : `*${start}-`;
       console.log(`Clip selection (GET): ${start} to ${end || 'end'}, section: ${section}`);
+      
+      // Create temp file for clip selection
+      const tempDir = path.join(os.tmpdir(), 'downlox_clips');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      tempFilePath = path.join(tempDir, `${crypto.randomBytes(16).toString('hex')}.mp4`);
+      
+      // Change output to temp file instead of stdout
+      args = args.filter(arg => arg !== '-o' && arg !== '-');
+      args.push('-o', tempFilePath);
       args.push('--download-sections', section);
       args.push('--force-keyframes-at-cuts');
     }
@@ -189,7 +205,119 @@ app.get('/api/video/download', async (req, res) => {
     
     // Stream download with proper error handling and logging
     console.log(`Starting download: ${filename}, URL: ${url}`);
-    // Clip selection logging is already done above (line 166)
+    if (startTime || endTime) {
+      console.log(`Clip selection mode: Using temp file ${tempFilePath}`);
+      console.log(`Full yt-dlp command: ${ytdlpPath} ${args.join(' ')}`);
+    }
+    
+    // For clip selection, download to temp file first, then stream
+    if (useTempFile) {
+      const ytdlpProcess = spawn(ytdlpPath, args);
+      
+      let stderrOutput = '';
+      
+      ytdlpProcess.stderr.on('data', (data) => {
+        const errorMsg = data.toString();
+        stderrOutput += errorMsg;
+        console.error('yt-dlp stderr:', errorMsg);
+      });
+      
+      ytdlpProcess.on('error', (error) => {
+        console.error('Process spawn error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Download failed', message: error.message });
+        }
+        // Clean up temp file
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      });
+      
+      ytdlpProcess.on('close', async (code) => {
+        console.log(`yt-dlp process closed with code ${code}`);
+        
+        if (code !== 0) {
+          if (!res.headersSent) {
+            res.status(500).json({ 
+              error: 'Download failed', 
+              message: `Process exited with code ${code}. ${stderrOutput.substring(0, 200)}` 
+            });
+          }
+          // Clean up temp file
+          if (tempFilePath && fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+          }
+          return;
+        }
+        
+        // Check if temp file exists and has content
+        if (!tempFilePath || !fs.existsSync(tempFilePath)) {
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Download failed', message: 'Clip file not created' });
+          }
+          return;
+        }
+        
+        const stats = fs.statSync(tempFilePath);
+        if (stats.size === 0) {
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Download failed', message: 'Clip file is empty' });
+          }
+          fs.unlinkSync(tempFilePath);
+          return;
+        }
+        
+        console.log(`Clip downloaded successfully: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`);
+        
+        // Stream the temp file
+        try {
+          const fileStream = fs.createReadStream(tempFilePath);
+          fileStream.pipe(res);
+          
+          fileStream.on('end', () => {
+            // Clean up temp file after streaming
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+              fs.unlinkSync(tempFilePath);
+              console.log('Temp clip file cleaned up');
+            }
+          });
+          
+          fileStream.on('error', (error) => {
+            console.error('File stream error:', error);
+            if (!res.headersSent) {
+              res.status(500).json({ error: 'Stream failed', message: error.message });
+            }
+            // Clean up temp file
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+              fs.unlinkSync(tempFilePath);
+            }
+          });
+        } catch (error) {
+          console.error('Error streaming clip file:', error);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Stream failed', message: error.message });
+          }
+          // Clean up temp file
+          if (tempFilePath && fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+          }
+        }
+      });
+      
+      // Handle client disconnect
+      req.on('close', () => {
+        console.log('Client disconnected, killing yt-dlp process');
+        ytdlpProcess.kill();
+        // Clean up temp file
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      });
+      
+      return; // Exit early for clip selection
+    }
+    
+    // For full video, use direct streaming (existing code)
     const ytdlpProcess = spawn(ytdlpPath, args);
     
     let bytesStreamed = 0;
