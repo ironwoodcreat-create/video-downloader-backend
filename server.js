@@ -107,10 +107,13 @@ app.post('/api/video/info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
+    // Add user agent and extractor args to avoid YouTube bot detection
     const result = await runYtDlp([
       '--dump-json',
       '--no-warnings',
       '--no-playlist',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      '--extractor-args', 'youtube:player_client=android',
       url
     ]);
     
@@ -159,6 +162,7 @@ app.get('/api/video/download', async (req, res) => {
     }
     
     // Download options
+    // Add user agent and extractor args to avoid YouTube bot detection
     let args = [
       '--format', formatSelector,
       '--no-playlist',
@@ -166,6 +170,8 @@ app.get('/api/video/download', async (req, res) => {
       '--no-part',
       '--buffer-size', '128K',
       '--concurrent-fragments', '8',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      '--extractor-args', 'youtube:player_client=android',
       '-o', '-', // Output to stdout
     ];
     
