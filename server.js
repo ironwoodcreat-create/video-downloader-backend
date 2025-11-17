@@ -159,9 +159,12 @@ app.get('/api/video/download', async (req, res) => {
     
     // Time range for clips
     if (startTime || endTime) {
-      const start = startTime || '00:00:00';
-      const end = endTime || '';
-      args.push('--download-sections', `*${start}-${end}`);
+      const start = startTime ? startTime : '00:00:00';
+      const end = endTime ? endTime : '';
+      // yt-dlp format: *HH:MM:SS-HH:MM:SS or *HH:MM:SS- (for end of video)
+      const section = end ? `*${start}-${end}` : `*${start}-`;
+      console.log(`Clip selection (GET): ${start} to ${end || 'end'}, section: ${section}`);
+      args.push('--download-sections', section);
       args.push('--force-keyframes-at-cuts');
     }
     
@@ -186,9 +189,7 @@ app.get('/api/video/download', async (req, res) => {
     
     // Stream download with proper error handling and logging
     console.log(`Starting download: ${filename}, URL: ${url}`);
-    if (startTime || endTime) {
-      console.log(`Clip selection (GET): ${startTime || '00:00:00'} to ${endTime || 'end'}`);
-    }
+    // Clip selection logging is already done above (line 166)
     const ytdlpProcess = spawn(ytdlpPath, args);
     
     let bytesStreamed = 0;
@@ -321,8 +322,10 @@ app.post('/api/video/download', async (req, res) => {
     if (startTime || endTime) {
       const start = startTime ? startTime : '00:00:00';
       const end = endTime ? endTime : '';
-      console.log(`Clip selection (POST): ${start} to ${end}`);
-      args.push('--download-sections', `*${start}-${end}`);
+      // yt-dlp format: *HH:MM:SS-HH:MM:SS or *HH:MM:SS- (for end of video)
+      const section = end ? `*${start}-${end}` : `*${start}-`;
+      console.log(`Clip selection (POST): ${start} to ${end || 'end'}, section: ${section}`);
+      args.push('--download-sections', section);
       args.push('--force-keyframes-at-cuts');
     }
     
