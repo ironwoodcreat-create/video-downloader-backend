@@ -107,15 +107,45 @@ app.post('/api/video/info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
-    const result = await runYtDlp([
-      '--dump-json',
-      '--no-warnings',
-      '--no-playlist',
-      '--extractor-args', 'youtube:player_client=web',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      '--referer', 'https://www.youtube.com/',
-      url
-    ]);
+    // Try with bot bypass flags first
+    let result;
+    try {
+      result = await runYtDlp([
+        '--dump-json',
+        '--no-warnings',
+        '--no-playlist',
+        '--no-check-formats', // Don't check format availability
+        '--extractor-args', 'youtube:player_client=web',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', 'https://www.youtube.com/',
+        url
+      ]);
+    } catch (firstError) {
+      // If first attempt fails, try with different extractor args
+      console.log('First attempt failed, trying with android client:', firstError.message);
+      try {
+        result = await runYtDlp([
+          '--dump-json',
+          '--no-warnings',
+          '--no-playlist',
+          '--no-check-formats',
+          '--extractor-args', 'youtube:player_client=android',
+          '--user-agent', 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          '--referer', 'https://www.youtube.com/',
+          url
+        ]);
+      } catch (secondError) {
+        // If both fail, try without extractor args
+        console.log('Second attempt failed, trying without extractor args:', secondError.message);
+        result = await runYtDlp([
+          '--dump-json',
+          '--no-warnings',
+          '--no-playlist',
+          '--no-check-formats',
+          url
+        ]);
+      }
+    }
     
     const videoInfo = JSON.parse(result);
     
@@ -125,9 +155,25 @@ app.post('/api/video/info', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting video info:', error);
-    res.status(500).json({ 
+    
+    // Provide more specific error messages
+    let errorMessage = error.message || 'Unknown error';
+    let statusCode = 500;
+    
+    if (errorMessage.includes('Private video') || errorMessage.includes('Sign in')) {
+      errorMessage = 'This video is private or requires sign-in. Please use a public video URL.';
+      statusCode = 403;
+    } else if (errorMessage.includes('Video unavailable') || errorMessage.includes('not available')) {
+      errorMessage = 'Video is unavailable. It may have been deleted or is not accessible.';
+      statusCode = 404;
+    } else if (errorMessage.includes('format')) {
+      errorMessage = 'Video format not available. The video may be restricted or unavailable in your region.';
+      statusCode = 400;
+    }
+    
+    res.status(statusCode).json({ 
       error: 'Failed to get video info',
-      message: error.message 
+      message: errorMessage 
     });
   }
 });
