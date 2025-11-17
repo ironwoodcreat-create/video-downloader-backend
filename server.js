@@ -107,30 +107,15 @@ app.post('/api/video/info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
 
-    // Add user agent and extractor args to avoid YouTube bot detection
-    // Use multiple fallback strategies: ios, android, web
     const result = await runYtDlp([
       '--dump-json',
       '--no-warnings',
       '--no-playlist',
-      '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-      '--extractor-args', 'youtube:player_client=ios',
+      '--extractor-args', 'youtube:player_client=web',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       '--referer', 'https://www.youtube.com/',
-      '--add-header', 'Accept-Language:en-US,en;q=0.9',
       url
-    ]).catch(async (error) => {
-      // Fallback to android if ios fails
-      console.log('iOS client failed, trying Android client...');
-      return await runYtDlp([
-        '--dump-json',
-        '--no-warnings',
-        '--no-playlist',
-        '--user-agent', 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        '--extractor-args', 'youtube:player_client=android',
-        '--referer', 'https://www.youtube.com/',
-        url
-      ]);
-    });
+    ]);
     
     const videoInfo = JSON.parse(result);
     
@@ -177,7 +162,6 @@ app.get('/api/video/download', async (req, res) => {
     }
     
     // Download options
-    // Add user agent and extractor args to avoid YouTube bot detection
     let args = [
       '--format', formatSelector,
       '--no-playlist',
@@ -185,8 +169,9 @@ app.get('/api/video/download', async (req, res) => {
       '--no-part',
       '--buffer-size', '128K',
       '--concurrent-fragments', '8',
+      '--extractor-args', 'youtube:player_client=web',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      '--extractor-args', 'youtube:player_client=android',
+      '--referer', 'https://www.youtube.com/',
       '-o', '-', // Output to stdout
     ];
     
@@ -498,7 +483,6 @@ app.post('/api/video/download', async (req, res) => {
     }
     
     // Download options
-    // Add user agent and extractor args to avoid YouTube bot detection
     const args = [
       '--format', formatSelector,
       '--no-playlist',
@@ -506,8 +490,9 @@ app.post('/api/video/download', async (req, res) => {
       '--no-part',
       '--buffer-size', '128K',
       '--concurrent-fragments', '8',
+      '--extractor-args', 'youtube:player_client=web',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      '--extractor-args', 'youtube:player_client=android',
+      '--referer', 'https://www.youtube.com/',
       '-o', '-', // Output to stdout
     ];
     
@@ -680,10 +665,11 @@ app.get('/api/video/preview', async (req, res) => {
         '--format', 'best[height<=360]/bestvideo[height<=360]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]',
         '--merge-output-format', 'mp4',
         '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 128k',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player_client=android',
         '--no-playlist',
         '--no-warnings',
+        '--extractor-args', 'youtube:player_client=web',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', 'https://www.youtube.com/',
         '-o', cacheFile,
         url
       ];
@@ -810,13 +796,14 @@ app.post('/api/video/preview', async (req, res) => {
       '--format', 'best[height<=360]/bestvideo[height<=360]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]',
       '--merge-output-format', 'mp4', // Ensure MP4 output with audio
       '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 128k', // Ensure AAC audio codec for browser compatibility
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      '--extractor-args', 'youtube:player_client=android',
       '--no-playlist',
       '--no-warnings',
       '--no-part',
       '--buffer-size', '64K',
       '--concurrent-fragments', '4',
+      '--extractor-args', 'youtube:player_client=web',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      '--referer', 'https://www.youtube.com/',
       '-o', '-', // Output to stdout
       url
     ];
@@ -913,13 +900,14 @@ app.get('/api/video/preview_file', async (req, res) => {
         '--format', 'best[height<=360]/bestvideo[height<=360]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[height<=360]',
         '--merge-output-format', 'mp4',
         '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 128k',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player_client=android',
         '--no-playlist',
         '--no-warnings',
         '--no-part',
         '--buffer-size', '64K',
         '--concurrent-fragments', '4',
+        '--extractor-args', 'youtube:player_client=web',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', 'https://www.youtube.com/',
         '-o', filePath,
         url
       ];
