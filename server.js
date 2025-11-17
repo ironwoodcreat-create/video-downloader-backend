@@ -108,15 +108,29 @@ app.post('/api/video/info', async (req, res) => {
     }
 
     // Add user agent and extractor args to avoid YouTube bot detection
+    // Use multiple fallback strategies: ios, android, web
     const result = await runYtDlp([
       '--dump-json',
       '--no-warnings',
       '--no-playlist',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      '--extractor-args', 'youtube:player_client=android,player_skip=webpage',
+      '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+      '--extractor-args', 'youtube:player_client=ios',
       '--referer', 'https://www.youtube.com/',
+      '--add-header', 'Accept-Language:en-US,en;q=0.9',
       url
-    ]);
+    ]).catch(async (error) => {
+      // Fallback to android if ios fails
+      console.log('iOS client failed, trying Android client...');
+      return await runYtDlp([
+        '--dump-json',
+        '--no-warnings',
+        '--no-playlist',
+        '--user-agent', 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        '--extractor-args', 'youtube:player_client=android',
+        '--referer', 'https://www.youtube.com/',
+        url
+      ]);
+    });
     
     const videoInfo = JSON.parse(result);
     
