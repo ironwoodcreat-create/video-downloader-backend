@@ -483,6 +483,7 @@ app.post('/api/video/download', async (req, res) => {
     }
     
     // Download options
+    // Add user agent and extractor args to avoid YouTube bot detection
     const args = [
       '--format', formatSelector,
       '--no-playlist',
@@ -490,6 +491,8 @@ app.post('/api/video/download', async (req, res) => {
       '--no-part',
       '--buffer-size', '128K',
       '--concurrent-fragments', '8',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      '--extractor-args', 'youtube:player_client=android',
       '-o', '-', // Output to stdout
     ];
     
