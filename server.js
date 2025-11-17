@@ -186,6 +186,9 @@ app.get('/api/video/download', async (req, res) => {
     
     // Stream download with proper error handling and logging
     console.log(`Starting download: ${filename}, URL: ${url}`);
+    if (startTime || endTime) {
+      console.log(`Clip selection (GET): ${startTime || '00:00:00'} to ${endTime || 'end'}`);
+    }
     const ytdlpProcess = spawn(ytdlpPath, args);
     
     let bytesStreamed = 0;
@@ -316,8 +319,9 @@ app.post('/api/video/download', async (req, res) => {
     
     // Time range for clips
     if (startTime || endTime) {
-      const start = startTime || '00:00:00';
-      const end = endTime || '';
+      const start = startTime ? startTime : '00:00:00';
+      const end = endTime ? endTime : '';
+      console.log(`Clip selection (POST): ${start} to ${end}`);
       args.push('--download-sections', `*${start}-${end}`);
       args.push('--force-keyframes-at-cuts');
     }
